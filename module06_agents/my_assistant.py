@@ -5,12 +5,14 @@ HANDOFF_WORDS = ["refund", "cancel", "complaint"]
 
 
 class RepairHelper:
-    """A mock repair-status helper. Replies come from keyword rules, not AI."""
+    """A repair-status helper. Rules handle the repair board. A model handles the rest."""
 
-    def __init__(self, name, repair_board):
-        """Set up one helper with its own name, tool, and history."""
+    def __init__(self, name, instructions, repair_board, model):
+        """Set up one helper with its own name, instructions, tool, model, and history."""
         self.name = name
+        self.instructions = instructions
         self.repair_board = repair_board
+        self.model = model
         self.history = []
 
     def respond(self, user_message):
@@ -21,7 +23,7 @@ class RepairHelper:
         return reply
 
     def choose_reply(self, user_message):
-        """Choose a reply with keyword rules. This is the mock part."""
+        """Use a rule when one applies. Otherwise ask the model."""
         text = user_message.lower()
         if self.needs_human(text):
             return "I can't handle money or cancellations. I'm passing you to the shop manager."
@@ -31,9 +33,14 @@ class RepairHelper:
             or self.repair_board.looks_like_ticket(user_message)
         ):
             return self.status_reply(user_message)
-        if "hello" in text or "hi" in text.split():
-            return f"Hi! I'm {self.name}. Send me a ticket ID like R101 and I'll check your repair."
-        return "I'm not sure how to help with that. I can check a repair status."
+        return self.model_reply()
+
+    def model_reply(self):
+        """Ask the model for a reply. Give a safe answer if the model has none."""
+        reply = self.model.reply(self.instructions, self.history)
+        if reply is None:
+            return "Sorry, I can't answer that right now. Please try again in a moment."
+        return reply
 
     def needs_human(self, text):
         """Return True if the message involves refunds or cancellations."""
