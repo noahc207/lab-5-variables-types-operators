@@ -2,16 +2,17 @@
 # Author: Noah Chavez
 
 HANDOFF_WORDS = ["refund", "cancel", "complaint"]
+MAX_TOOL_ROUNDS = 3
 
 
 class RepairHelper:
-    """A repair-status helper. Rules handle the repair board. A model handles the rest."""
+    """A repair helper. The model decides. The toolbox checks every request."""
 
-    def __init__(self, name, instructions, repair_board, model):
-        """Set up one helper with its own name, instructions, tool, model, and history."""
+    def __init__(self, name, instructions, tools, model):
+        """Set up one helper with its name, instructions, tools, model, and history."""
         self.name = name
         self.instructions = instructions
-        self.repair_board = repair_board
+        self.tools = tools
         self.model = model
         self.history = []
 
@@ -23,37 +24,37 @@ class RepairHelper:
         return reply
 
     def choose_reply(self, user_message):
-        """Use a rule when one applies. Otherwise ask the model."""
-        text = user_message.lower()
-        if self.needs_human(text):
+        """Send money matters to the shop manager. Give the rest to the model."""
+        if self.needs_human(user_message.lower()):
             return "I can't handle money or cancellations. I'm passing you to the shop manager."
-        if (
-            "status" in text
-            or "ready" in text
-            or self.repair_board.looks_like_ticket(user_message)
-        ):
-            return self.status_reply(user_message)
         return self.model_reply()
 
-    def model_reply(self):
-        """Ask the model for a reply. Give a safe answer if the model has none."""
-        reply = self.model.reply(self.instructions, self.history)
-        if reply is None:
-            return "Sorry, I can't answer that right now. Please try again in a moment."
-        return reply
-
     def needs_human(self, text):
-        """Return True if the message involves refunds or cancellations."""
+        """Return True if the message involves refunds, cancellations, or complaints."""
         for word in HANDOFF_WORDS:
             if word in text:
                 return True
         return False
 
-    def status_reply(self, user_message):
-        """Use the repair board to answer a status question."""
-        ticket_id = self.repair_board.find_ticket(user_message)
-        if ticket_id is not None:
-            return f"Ticket {ticket_id}: {self.repair_board.status_for(ticket_id)}."
-        if self.repair_board.looks_like_ticket(user_message):
-            return "I couldn't find that ticket. Please double check the ID."
-        return "Which ticket? Please send an ID like R101."
+    def model_reply(self):
+        """Ask the model. Run any tool it requests and ask again, up to a limit."""
+        for _ in range(MAX_TOOL_ROUNDS):
+            decision = self.model.decide(
+                self.instructions, self.history, self.tools.tool_list()
+            )
+            if decision is None:
+                return "Sorry, I can't answer that right now. Please try again in a moment."
+            if "text" in decision:
+                return decision["text"]
+            result = self.tools.run(
+                decision["tool"], decision["arguments"], self.history
+            )
+            self.history.append(
+                {
+                    "role": "tool",
+                    "tool_name": decision["tool"],
+                    "arguments": decision["arguments"],
+                    "content": result,
+                }
+            )
+        return "Sorry, I couldn't finish that. I'm passing you to the shop manager."
